@@ -2,18 +2,29 @@
   "name": "koishi-plugin-batch-recall",
   "description": "批量撤回，基于数据库，可指定撤回某用户的多少条消息，可配置",
   "version": "0.0.1",
+  "contributors": [
+    "Yis_Rime <yis_rime@outlook.com>"
+  ],
+  "homepage": "https://github.com/YisRime/koishi-plugin-batch-recall",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YisRime/koishi-plugin-batch-recall.git"
+  },
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "dist"
   ],
-  "license": "MIT",
+  "license": "GPL-3.0",
   "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "batch",
+    "recall",
+    "message"
   ],
   "devDependencies": {},
   "peerDependencies": {
