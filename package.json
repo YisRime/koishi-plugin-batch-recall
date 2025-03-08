@@ -1,0 +1,22 @@
+{
+  "name": "koishi-plugin-batch-recall",
+  "description": "批量撤回，基于数据库，可指定撤回某用户的多少条消息，可配置",
+  "version": "0.0.1",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {},
+  "keywords": [
+    "chatbot",
+    "koishi",
+    "plugin"
+  ],
+  "devDependencies": {},
+  "peerDependencies": {
+    "koishi": "^4.18.7"
+  }
+}
