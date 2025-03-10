@@ -10,15 +10,20 @@ export const inject = { required: ['database'] }
 export interface MessageManagerConfig {
   maxMessagesPerUser: number
   maxMessageRetentionHours: number
+  cleanupIntervalHours: number
 }
 
 export const Config: Schema<MessageManagerConfig> = Schema.object({
   maxMessagesPerUser: Schema.number()
-    .description('每个用户最多保存消息（条）')
+    .description('每个用户最多保存消息数量（条）')
     .default(99)
     .min(0),
   maxMessageRetentionHours: Schema.number()
     .description('消息最长保存时间（小时）')
+    .default(24)
+    .min(0),
+  cleanupIntervalHours: Schema.number()
+    .description('自动清理过期消息的时间间隔（小时）')
     .default(24)
     .min(0),
 })
@@ -58,6 +63,35 @@ interface RecallTask {
  */
 export function apply(ctx: Context, config: MessageManagerConfig) {
   const pluginLogger = ctx.logger('batch-recall')
+  let cleanupTimer: NodeJS.Timeout
+
+  // 功能状态检查
+  const features = {
+    storeMessages: config.maxMessagesPerUser > 0 || config.maxMessageRetentionHours > 0,
+    limitByCount: config.maxMessagesPerUser > 0,
+    limitByTime: config.maxMessageRetentionHours > 0,
+    autoCleanup: config.cleanupIntervalHours > 0
+  }
+
+  // 输出功能状态日志
+  function logFeatureStatus() {
+    if (!features.storeMessages) {
+      pluginLogger.info('消息存储功能已禁用')
+      return
+    }
+
+    const enabledFeatures = []
+    if (features.limitByCount) enabledFeatures.push(`数量限制 (${config.maxMessagesPerUser} 条/用户)`)
+    if (features.limitByTime) enabledFeatures.push(`时间限制 (${config.maxMessageRetentionHours} 小时)`)
+
+    pluginLogger.info(`消息存储功能已启用 [${enabledFeatures.join(', ')}]`)
+
+    if (features.autoCleanup) {
+      pluginLogger.info(`自动清理已启用 (每 ${config.cleanupIntervalHours} 小时)`)
+    } else {
+      pluginLogger.info('自动清理已禁用')
+    }
+  }
 
   // 扩展数据库模型
   ctx.model.extend('messages', {
@@ -74,71 +108,120 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
   })
 
   /**
-   * 清理过期消息
-   * @param channelId 频道ID
-   * @param userId 用户ID
-   * @returns Promise 表示清理操作的结果
+   * 清理所有过期消息
    */
-  async function removeExpiredMessages(channelId: string, userId: string): Promise<void> {
-    const cleanupTasks = []
-    const currentTimestamp = Date.now()
+  async function cleanupAllExpiredMessages(): Promise<void> {
+    try {
+      const currentTimestamp = Date.now()
+      const cleanupTasks = []
 
-    // 清理超过保存时间的消息
-    if (config.maxMessageRetentionHours > 0) {
-      const expirationTimestamp = currentTimestamp - config.maxMessageRetentionHours * 3600000
-      cleanupTasks.push(
-        ctx.database.remove('messages', {
-          channelId,
-          timestamp: { $lt: expirationTimestamp }
-        })
-      )
-    }
-
-    // 清理超过数量限制的消息
-    if (config.maxMessagesPerUser > 0) {
-      const userMessages = await ctx.database
-        .select('messages')
-        .where({ channelId, userId })
-        .orderBy('timestamp', 'desc')
-        .limit(config.maxMessagesPerUser + 1)
-        .execute()
-
-      if (userMessages.length > config.maxMessagesPerUser) {
-        const messagesToRemove = userMessages.slice(config.maxMessagesPerUser).map(msg => msg.messageId)
+      // 清理超过保存时间的消息
+      if (features.limitByTime) {
+        const expirationTimestamp = currentTimestamp - config.maxMessageRetentionHours * 3600000
         cleanupTasks.push(
           ctx.database.remove('messages', {
-            messageId: { $in: messagesToRemove }
+            timestamp: { $lt: expirationTimestamp }
           })
         )
       }
-    }
 
-    await Promise.all(cleanupTasks).catch(error =>
-      pluginLogger.error(`清理过期消息失败: ${error.message}`))
+      // 清理超过数量限制的消息
+      if (features.limitByCount) {
+        const userChannelPairs = await ctx.database
+          .select('messages')
+          .groupBy(['userId', 'channelId'])
+          .execute()
+
+        for (const pair of userChannelPairs) {
+          const userMessages = await ctx.database
+            .select('messages')
+            .where({ channelId: pair.channelId, userId: pair.userId })
+            .orderBy('timestamp', 'desc')
+            .execute()
+
+          if (userMessages.length > config.maxMessagesPerUser) {
+            const messagesToRemove = userMessages
+              .slice(config.maxMessagesPerUser)
+              .map(msg => msg.messageId)
+
+            if (messagesToRemove.length > 0) {
+              cleanupTasks.push(
+                ctx.database.remove('messages', {
+                  messageId: { $in: messagesToRemove }
+                })
+              )
+            }
+          }
+        }
+      }
+      // 执行清理并记录结果
+      const results = await Promise.all(cleanupTasks)
+      const totalRemoved = results.reduce((sum, result) => sum + (result?.matched || 0), 0)
+
+      if (totalRemoved > 0) {
+        pluginLogger.info(`成功清理 ${totalRemoved} 条过期消息`)
+      } else {
+        pluginLogger.debug('没有发现需要清理的过期消息')
+      }
+    } catch (error) {
+      pluginLogger.error(`清理过期消息失败: ${error.message}`)
+    }
   }
 
-  // 存储进行中的撤回任务
-  const activeRecallTasks = new Map<string, Set<RecallTask>>()
+  /**
+   * 启动定时清理任务
+   */
+  function startCleanupTask() {
+    if (!features.storeMessages || !features.autoCleanup) {
+      return
+    }
+
+    if (cleanupTimer) {
+      clearInterval(cleanupTimer)
+    }
+    cleanupAllExpiredMessages()
+
+    const intervalMs = config.cleanupIntervalHours * 3600 * 1000
+    cleanupTimer = setInterval(cleanupAllExpiredMessages, intervalMs)
+  }
 
   /**
-   * 处理消息事件，保存消息记录并清理过期消息
+   * 处理消息事件，保存消息记录
    * @param session 会话对象
    */
   const handleMessageEvent = async (session) => {
     if (!session?.messageId) return
-
-    // 存储消息并清理过期消息
     await ctx.database.create('messages', {
       messageId: session.messageId,
       userId: session.userId,
       channelId: session.channelId,
       timestamp: Date.now(),
-    }).then(() => removeExpiredMessages(session.channelId, session.userId))
+    }).catch(error =>
+      pluginLogger.error(`保存消息记录失败: ${error.message}`)
+    )
   }
 
-  // 监听消息发送和接收事件
-  ctx.on('message', handleMessageEvent)
-  ctx.on('send', handleMessageEvent)
+  // 启用消息存储才注册监听器
+  if (features.storeMessages) {
+    ctx.on('message', handleMessageEvent)
+    ctx.on('send', handleMessageEvent)
+
+    ctx.on('ready', () => {
+      logFeatureStatus()
+      startCleanupTask()
+    })
+
+    ctx.on('dispose', () => {
+      if (cleanupTimer) {
+        clearInterval(cleanupTimer)
+        pluginLogger.info('已停止自动清理任务')
+      }
+    })
+  } else {
+    ctx.on('ready', logFeatureStatus)
+  }
+
+  const activeRecallTasks = new Map<string, Set<RecallTask>>()
 
   /**
    * 撤回指定消息
@@ -180,8 +263,8 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
 
   // 注册撤回命令
   const recall = ctx.command('recall', '撤回消息')
-    .option('user', '-u <user> 撤回指定用户的消息')
-    .option('number', '-n <number> 撤回消息数量', { fallback: 1 })
+    .option('user', '-u <user> 撤回指定用户的消息', { authority: 3 })
+    .option('number', '-n <number> 撤回消息数量', { authority: 3, fallback: 1 })
     .action(async ({ session, options }) => {
       try {
         // 处理引用消息的撤回
@@ -192,6 +275,10 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
             quotedMessages.map(q => q.id || q.messageId)
           )
           return failed ? `撤回完成：成功 ${success} 条，失败 ${failed} 条` : ''
+        }
+
+        if (!features.storeMessages && !session.quote) {
+          return '消息存储功能已禁用，只能撤回引用消息'
         }
 
         // 创建新的撤回任务
@@ -243,7 +330,7 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
       }
     })
 
-  // 注册停止撤回命令
+    // 注册停止撤回命令
   recall.subcommand('.stop', '停止撤回操作')
     .action(async ({ session }) => {
       const channelRecallTasks = activeRecallTasks.get(session.channelId)
