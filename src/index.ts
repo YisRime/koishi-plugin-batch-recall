@@ -262,9 +262,11 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
   }
 
   // 注册撤回命令
-  const recall = ctx.command('recall', '撤回消息')
-    .option('user', '-u <user> 撤回指定用户的消息', { authority: 3 })
-    .option('number', '-n <number> 撤回消息数量', { authority: 3, fallback: 1 })
+  const recall = ctx.command('recall', '撤回消息', { authority: 2 })
+    .option('user', '-u <user> 撤回指定用户的消息')
+    .option('number', '-n <number> 撤回消息数量', { fallback: 1 })
+    .usage('撤回指定数量的消息，可以通过引用消息或指定用户和数量进行撤回')
+    .example('recall -u @用户 -n 10 - 撤回指定用户的10条最新消息')
     .action(async ({ session, options }) => {
       try {
         // 处理引用消息的撤回
@@ -332,6 +334,8 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
 
     // 注册停止撤回命令
   recall.subcommand('.stop', '停止撤回操作')
+    .usage('停止所有正在进行的撤回操作')
+    .example('recall.stop - 立即停止所有正在执行的撤回任务')
     .action(async ({ session }) => {
       const channelRecallTasks = activeRecallTasks.get(session.channelId)
       if (!channelRecallTasks || !channelRecallTasks.size) {
