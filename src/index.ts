@@ -82,7 +82,7 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
     let storageInfo = '';
     if (features.limitByTime) storageInfo += `${config.maxMessageRetentionHours} 小时`;
     if (features.limitByTime && features.limitByCount) storageInfo += '，';
-    if (features.limitByCount) storageInfo += `${config.maxMessagesPerUser}条/用户`;
+    if (features.limitByCount) storageInfo += `${config.maxMessagesPerUser} 条/用户`;
 
     pluginLogger.info(`已启用消息存储（${storageInfo}）`);
 
@@ -156,11 +156,11 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
       const totalRemoved = results.reduce((sum, result) => sum + (result?.matched || 0), 0)
 
       if (totalRemoved > 0) {
-        pluginLogger.info(`已清理 ${totalRemoved} 条消息`)
+        pluginLogger.info(`已清理 ${totalRemoved} 条消息记录`)
       } else {
       }
     } catch (error) {
-      pluginLogger.error(`清理消息失败: ${error.message}`)
+      pluginLogger.error(`清理消息记录失败: ${error.message}`)
     }
   }
 
