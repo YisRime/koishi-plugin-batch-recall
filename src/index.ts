@@ -206,10 +206,17 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
       startCleanupTask()
     })
 
-    ctx.on('dispose', () => {
+    ctx.on('dispose', async () => {
       if (cleanupTimer) {
         clearInterval(cleanupTimer)
         pluginLogger.info('已停止自动清理')
+      }
+
+      try {
+        await ctx.database.drop('messages')
+        pluginLogger.info('已删除消息记录表')
+      } catch (error) {
+        pluginLogger.error(`删除消息记录表失败: ${error.message}`)
       }
     })
   } else {

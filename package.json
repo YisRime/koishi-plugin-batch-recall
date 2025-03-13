@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-batch-recall",
   "description": "批量撤回，基于数据库，可指定撤回某用户的多少条消息，可配置",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "contributors": [
     "Yis_Rime <yis_rime@outlook.com>"
   ],
