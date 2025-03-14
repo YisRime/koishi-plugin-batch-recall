@@ -337,9 +337,9 @@ export function apply(ctx: Context, config: Config) {
     // 输出状态信息
     let storageInfo = '';
     if (features.limitByTime) storageInfo += ` ${config.maxMessageRetentionHours} 小时`;
-    if (features.limitByTime && features.limitByCount) storageInfo += ' & ';
+    if (features.limitByTime && features.limitByCount) storageInfo += ' &';
     if (features.limitByCount) storageInfo += ` ${config.maxMessagesPerUser} 条/用户`;
-    logger.info(`消息存储已启用（${storageInfo}）`);
+    logger.info(`已启用消息存储（${storageInfo}）`);
     // 启动定时清理
     startCleanupSchedule()
   })
