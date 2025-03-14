@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-batch-recall?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-batch-recall)
 
-批量撤回插件，基于数据库，支持按用户指定撤回消息，支持多种过滤和配置选项
+基于数据库的高阶撤回，支持撤回某用户的几条消息
 
 ## 主要功能
 
