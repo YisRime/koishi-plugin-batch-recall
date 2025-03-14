@@ -11,22 +11,42 @@ export interface MessageManagerConfig {
   maxMessagesPerUser: number
   maxMessageRetentionHours: number
   cleanupIntervalHours: number
+  enableFilter: boolean
+  whitelist: string[]
+  blacklist: string[]
 }
 
-export const Config: Schema<MessageManagerConfig> = Schema.object({
-  maxMessagesPerUser: Schema.number()
-    .description('最多保存消息数量（条/用户）')
-    .default(99)
-    .min(0),
-  maxMessageRetentionHours: Schema.number()
-    .description('最多保存消息时间（小时）')
-    .default(24)
-    .min(0),
-  cleanupIntervalHours: Schema.number()
-    .description('自动清理过期消息时间（小时）')
-    .default(24)
-    .min(0),
-})
+export const Config = Schema.intersect([
+  Schema.object({
+    maxMessagesPerUser: Schema.number()
+      .description('最多保存消息数量（条/用户）')
+      .default(99)
+      .min(0),
+    maxMessageRetentionHours: Schema.number()
+      .description('最多保存消息时间（小时）')
+      .default(24)
+      .min(0),
+    cleanupIntervalHours: Schema.number()
+      .description('自动清理过期消息时间（小时）')
+      .default(24)
+      .min(0),
+    enableFilter: Schema.boolean().default(false).description('启用过滤器'),
+  }).description('基础配置'),
+  Schema.union([
+    Schema.object({
+      enableFilter: Schema.const(true).required(),
+      whitelist: Schema.array(Schema.string())
+        .description('白名单，仅记录以下平台/群组（先于黑名单生效）')
+        .default([]),
+      blacklist: Schema.array(Schema.string())
+        .description('黑名单，不会记录以下平台/群组')
+        .default([
+          'onebot:12345',
+          'qq:',
+        ]),
+    })
+  ]),
+])
 
 declare module 'koishi' {
   interface Tables {
@@ -43,6 +63,8 @@ interface StoredMessage {
   userId: string
   channelId: string
   timestamp: number
+  platform?: string
+  guildId?: string
 }
 
 /**
@@ -64,13 +86,13 @@ interface RecallTask {
 export function apply(ctx: Context, config: MessageManagerConfig) {
   const pluginLogger = ctx.logger('batch-recall')
   let cleanupTimer: NodeJS.Timeout
-
   // 功能状态检查
   const features = {
     storeMessages: config.maxMessagesPerUser > 0 || config.maxMessageRetentionHours > 0,
     limitByCount: config.maxMessagesPerUser > 0,
     limitByTime: config.maxMessageRetentionHours > 0,
-    autoCleanup: config.cleanupIntervalHours > 0
+    autoCleanup: config.cleanupIntervalHours > 0,
+    filter: config.enableFilter
   }
 
   // 输出功能状态日志
@@ -81,14 +103,13 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
 
     let storageInfo = '';
     if (features.limitByTime) storageInfo += `${config.maxMessageRetentionHours} 小时`;
-    if (features.limitByTime && features.limitByCount) storageInfo += '，';
+    if (features.limitByTime && features.limitByCount) storageInfo += '&';
     if (features.limitByCount) storageInfo += `${config.maxMessagesPerUser} 条/用户`;
 
     pluginLogger.info(`已启用消息存储（${storageInfo}）`);
 
     if (features.autoCleanup) {
-      pluginLogger.info(`已启用自动清理 (每 ${config.cleanupIntervalHours} 小时)`)
-    } else {
+      pluginLogger.info(`已启用自动清理（每 ${config.cleanupIntervalHours} 小时）`)
     }
   }
 
@@ -98,10 +119,13 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
     userId: 'string',
     channelId: 'string',
     timestamp: 'integer',
+    platform: 'string',
+    guildId: 'string',
   }, {
     primary: 'messageId',
     indexes: [
       ['channelId', 'userId'],
+      ['platform', 'guildId'],
       ['timestamp'],
     ],
   })
@@ -182,16 +206,46 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
   }
 
   /**
+   * 检查消息是否应该被过滤
+   * @param session 会话对象
+   * @returns 是否应该被过滤掉
+   */
+  function shouldFilterMessage(session): boolean {
+    if (!features.filter) return false
+
+    const { platform, guildId } = session
+    // 构建过滤标识符
+    const identifiers = [
+      `${platform}:${guildId}`,
+      `${platform}`,
+    ]
+    // 检查白名单
+    if (config.whitelist.length > 0) {
+      return !config.whitelist.some(item =>
+        identifiers.some(id => id.includes(item))
+      )
+    }
+    // 检查黑名单
+    return config.blacklist.some(item =>
+      identifiers.some(id => id.includes(item))
+    )
+  }
+
+  /**
    * 处理消息事件，保存消息记录
    * @param session 会话对象
    */
   const handleMessageEvent = async (session) => {
     if (!session?.messageId) return
+    if (shouldFilterMessage(session)) return
+
     await ctx.database.create('messages', {
       messageId: session.messageId,
       userId: session.userId,
       channelId: session.channelId,
       timestamp: Date.now(),
+      platform: session.platform,
+      guildId: session.guildId,
     }).catch(error =>
       pluginLogger.error(`保存消息记录失败: ${error.message}`)
     )
@@ -244,16 +298,21 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
 
   /**
    * 获取需要撤回的消息
-   * @param channelId 频道ID
+   * @param session 会话对象
    * @param options 查询选项，包括用户和数量
    * @returns 符合条件的消息列表
    */
-  async function fetchMessagesToRecall(channelId: string, options: { user?: string, count?: number }) {
+  async function fetchMessagesToRecall(session, options: {
+    user?: string,
+    count?: number
+  }) {
     const targetUserId = options.user?.replace(/^<at:(.+)>$/, '$1')
     return ctx.database
       .select('messages')
       .where({
-        channelId,
+        channelId: session.channelId,
+        platform: session.platform,
+        guildId: session.guildId,
         ...(targetUserId && { userId: targetUserId })
       })
       .orderBy('timestamp', 'desc')
@@ -265,7 +324,7 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
   const recall = ctx.command('recall', '撤回消息', { authority: 2 })
     .option('user', '-u <user> 撤回指定用户的消息')
     .option('number', '-n <number> 撤回消息数量', { fallback: 1 })
-    .usage('撤回指定数量的消息，可以通过引用消息或指定用户和数量进行撤回')
+    .usage('撤回当前会话中指定数量的消息，可以通过引用消息或指定用户和数量进行撤回')
     .example('recall -u @用户 -n 10 - 撤回指定用户的10条最新消息')
     .action(async ({ session, options }) => {
       try {
@@ -294,7 +353,7 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
         channelRecallTasks.add(recallOperation)
         activeRecallTasks.set(session.channelId, channelRecallTasks)
         // 获取需要撤回的消息
-        const messagesToRecall = await fetchMessagesToRecall(session.channelId, {
+        const messagesToRecall = await fetchMessagesToRecall(session, {
           user: options.user,
           count: options.number
         })
@@ -324,7 +383,7 @@ export function apply(ctx: Context, config: MessageManagerConfig) {
       }
     })
 
-    // 注册停止撤回命令
+  // 注册停止撤回命令
   recall.subcommand('.stop', '停止撤回操作')
     .usage('停止所有正在进行的撤回操作')
     .example('recall.stop - 立即停止所有正在执行的撤回任务')
