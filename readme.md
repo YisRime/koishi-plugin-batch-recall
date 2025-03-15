@@ -7,6 +7,8 @@
 ## 主要功能
 
 - **消息记录存储**
+  - 支持多种消息记录模式
+  - 支持白名单群组配置
   - 自动存储消息记录到数据库
   - 可配置每用户最大保存消息数量
   - 可配置消息最大保存时间
@@ -26,8 +28,10 @@
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |-------|-----|-------|------|
-| maxMessagesPerUser | 数字 | 99 | 每用户最大保存消息数量，设为0禁用数量限制 |
-| maxMessageRetentionHours | 数字 | 24 | 消息最大保存时间(小时)，设为0禁用时间限制 |
+| recordMode | 枚举 | recordWhitelisted | 消息记录模式：recordNone(不记录)、recordWhitelisted(仅记录白名单)、mixedMode(混合模式) |
+| whitelistedChannels | 字符串数组 | [] | 白名单群组ID列表 |
+| maxMessagesPerUser | 数字 | 99 | 每用户最大保存消息数量 |
+| maxMessageRetentionHours | 数字 | 24 | 消息最大保存时间(小时) |
 | cleanupIntervalHours | 数字 | 24 | 自动清理执行间隔(小时) |
 
 ## 使用方法
@@ -38,3 +42,5 @@
 |------|------|
 | -u, --user \<user\> | 撤回指定用户的消息 |
 | -n, --number \<number\> | 撤回消息数量，默认为1条 |
+
+停止撤回操作: `recall.stop`
