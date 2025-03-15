@@ -60,9 +60,9 @@ declare module 'koishi' {
 export const Config = Schema.intersect([
   Schema.object({
     recordMode: Schema.union([
-      Schema.const(RecordMode.RecordNone).description('1.不记录群组消息'),
-      Schema.const(RecordMode.RecordWhitelisted).description('2.仅记录白名单群组消息'),
-      Schema.const(RecordMode.MixedMode).description('3.同时记录其他群组发送消息')
+      Schema.const(RecordMode.RecordNone).description('不记录消息'),
+      Schema.const(RecordMode.RecordWhitelisted).description('记录白名单内消息'),
+      Schema.const(RecordMode.MixedMode).description('白名单与所有发送消息')
     ]).default(RecordMode.RecordNone).description('消息记录模式'),
     maxMessagesPerUser: Schema.number()
       .default(99).min(1).description('最多保存消息数量（条/用户）'),
@@ -240,7 +240,7 @@ export function apply(ctx: Context, config: Config) {
 
       const totalRemoved = timeRemoved + countRemoved
       if (totalRemoved > 0) {
-        logger.info(`清理完成: 已移除 ${totalRemoved} 条消息`)
+        logger.info(`清理完成: 已删除 ${totalRemoved} 条消息记录`)
       }
     } catch (error) {
       logger.error(`清理失败: ${error.message}`)
@@ -359,7 +359,6 @@ export function apply(ctx: Context, config: Config) {
   setupRecallCommand()
   // 仅在启用存储时执行相关初始化
   if (isStorageEnabled) {
-    // 初始化数据库
     initializeDatabase()
     // 监听消息事件 - 只有启用存储功能时才监听
     ctx.on('message', session => saveMessage(session, 'message'))
@@ -373,12 +372,11 @@ export function apply(ctx: Context, config: Config) {
     ctx.on('dispose', async () => {
       if (cleanupTimer) {
         clearInterval(cleanupTimer)
-        logger.info('已停止自动清理')
+        logger.info('已停止自动清理并尝试删除消息记录表')
       }
 
       try {
         await ctx.database.drop('messages')
-        logger.info('已删除消息记录表')
       } catch (error) {
         logger.error(`删除消息记录表失败: ${error.message}`)
       }
