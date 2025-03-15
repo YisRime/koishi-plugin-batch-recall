@@ -60,27 +60,18 @@ declare module 'koishi' {
 export const Config = Schema.intersect([
   Schema.object({
     recordMode: Schema.union([
-      Schema.const(RecordMode.RecordNone).description('不记录群组消息'),
-      Schema.const(RecordMode.RecordWhitelisted).description('仅记录白名单群组消息'),
-      Schema.const(RecordMode.MixedMode).description('记录白名单群组所有消息和其他群组发送消息')
-    ])
-    .default(RecordMode.RecordWhitelisted).description('消息记录模式'),
+      Schema.const(RecordMode.RecordNone).description('1.不记录群组消息'),
+      Schema.const(RecordMode.RecordWhitelisted).description('2.仅记录白名单群组消息'),
+      Schema.const(RecordMode.MixedMode).description('3.同时记录其他群组发送消息')
+    ]).default(RecordMode.RecordNone).description('消息记录模式'),
+    maxMessagesPerUser: Schema.number()
+      .default(99).min(1).description('最多保存消息数量（条/用户）'),
+    maxMessageRetentionHours: Schema.number()
+      .default(24).min(1).description('最多保存消息时间（小时）'),
+    cleanupIntervalHours: Schema.number()
+      .default(24).min(1).description('自动清理过期消息时间（小时）'),
     whitelistedChannels: Schema.array(String).default([]).description('白名单群组ID'),
-  }).description('基础配置'),
-  Schema.union([
-    Schema.object({
-      recordMode: Schema.union([
-        Schema.const(RecordMode.RecordWhitelisted),
-        Schema.const(RecordMode.MixedMode),
-      ]).required(),
-      maxMessagesPerUser: Schema.number()
-        .default(99).min(1).description('最多保存消息数量（条/用户）'),
-      maxMessageRetentionHours: Schema.number()
-        .default(24).min(1).description('最多保存消息时间（小时）'),
-      cleanupIntervalHours: Schema.number()
-        .default(24).min(1).description('自动清理过期消息时间（小时）')
-    }).description('消息存储配置'),
-  ])
+    }).description('消息记录与存储配置'),
 ])
 
 /**
