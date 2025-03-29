@@ -28,8 +28,7 @@
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |-------|-----|-------|------|
-| recordMode | 枚举 | recordWhitelisted | 消息记录模式：recordNone(不记录)、recordWhitelisted(仅记录白名单)、mixedMode(混合模式) |
-| whitelistedChannels | 字符串数组 | [] | 白名单群组ID列表 |
+| whitelistedGuilds | 字符串数组 | [] | 白名单群组ID列表 |
 | maxMessagesPerUser | 数字 | 99 | 每用户最大保存消息数量 |
 | maxMessageRetentionHours | 数字 | 24 | 消息最大保存时间(小时) |
 | cleanupIntervalHours | 数字 | 24 | 自动清理执行间隔(小时) |

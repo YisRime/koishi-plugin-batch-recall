@@ -40,13 +40,13 @@ interface RecallTask {
 /**
  * 插件配置接口
  * @interface Config
- * @property {string[]} whitelistedChannels - 允许记录消息的频道ID列表
+ * @property {string[]} whitelistedGuilds - 允许记录消息的频道ID列表
  * @property {number} [maxMessagesPerUser] - 每个用户最多保存的消息数量
  * @property {number} [maxMessageRetentionHours] - 消息最长保留时间（小时）
  * @property {number} [cleanupIntervalHours] - 自动清理消息的时间间隔（小时）
  */
 export interface Config {
-  whitelistedChannels: string[]
+  whitelistedGuilds: string[]
   maxMessagesPerUser?: number
   maxMessageRetentionHours?: number
   cleanupIntervalHours?: number
@@ -68,7 +68,7 @@ export const Config = Schema.object({
     .default(24).min(1).description('最多保存消息时间（小时）'),
   cleanupIntervalHours: Schema.number()
     .default(24).min(1).description('自动清理过期消息时间（小时）'),
-  whitelistedChannels: Schema.array(String).default([]).description('白名单群组ID'),
+  whitelistedGuilds: Schema.array(String).default([]).description('白名单群组ID'),
 }).description('消息记录与存储配置')
 
 /**
@@ -80,7 +80,7 @@ export function apply(ctx: Context, config: Config) {
   const logger = ctx.logger('batch-recall')
   let cleanupTimer: NodeJS.Timeout
   // 存储功能状态和活动撤回任务映射表
-  const isStorageEnabled = config.whitelistedChannels.length > 0
+  const isStorageEnabled = config.whitelistedGuilds.length > 0
   const activeRecallTasks = new Map<string, Set<RecallTask>>()
 
   /**
@@ -109,7 +109,7 @@ export function apply(ctx: Context, config: Config) {
    * @returns {Promise<void>}
    */
   async function saveMessage(session) {
-    if (!session?.messageId || !config.whitelistedChannels.includes(session.channelId)) return
+    if (!session?.messageId || !config.whitelistedGuilds.includes(session.channelId)) return
 
     try {
       await ctx.database.create('messages', {
